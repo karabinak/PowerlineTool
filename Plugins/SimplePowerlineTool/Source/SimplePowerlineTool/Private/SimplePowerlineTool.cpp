@@ -85,31 +85,41 @@ TSharedRef<SDockTab> FSimplePowerlineToolModule::OnSpawnPluginTab(const FSpawnTa
 		[
 			// Put your tab content here!
 			SNew(SOverlay)
-			+SOverlay::Slot()
+			+ SOverlay::Slot()
 			.HAlign(HAlign_Fill)
 			.VAlign(VAlign_Fill)
 			[
-				SNew(SBox)
-				.HAlign(HAlign_Right)
-				.VAlign(VAlign_Top)
-				[
-					SNew(SButton)
-					.Text(FText::FromString(TEXT("Click Me")))
-					.OnClicked_Raw(this, &FSimplePowerlineToolModule::OnButtonClick)
-				]
+				SNew(SImage)
+				.ColorAndOpacity(FColor::Black)
+				.RenderOpacity(.3f)
 			]
 			+ SOverlay::Slot()
-			.HAlign(HAlign_Left)
-			.VAlign(VAlign_Top)
+			.HAlign(HAlign_Fill)
+			.VAlign(VAlign_Fill)
 			[
-				SNew(SBox)
-				.HAlign(HAlign_Fill)
-				.VAlign(VAlign_Fill)
-				.WidthOverride(250.f)
-				.HeightOverride(400.f)
-				[
-					AssetPicker
-				]
+				SNew(SVerticalBox)
+					+ SVerticalBox::Slot()
+					[
+						AssetPicker
+					]
+
+					+ SVerticalBox::Slot()
+					[
+						SNew(SButton)
+						.Text(FText::FromString(TEXT("Generate Meshes")))
+						.HAlign(HAlign_Center)
+						.VAlign(VAlign_Center)
+						.OnClicked_Raw(this, &FSimplePowerlineToolModule::CreateMeshClicked)
+					]
+
+					+ SVerticalBox::Slot()
+					[
+						SNew(SButton)
+						.Text(FText::FromString(TEXT("Regenerate Selected Meshes")))
+						.HAlign(HAlign_Center)
+						.VAlign(VAlign_Center)
+						.OnClicked_Raw(this, &FSimplePowerlineToolModule::RegenerateMeshClicked)
+					]
 			]
 		];
 }
@@ -123,7 +133,6 @@ void FSimplePowerlineToolModule::RegisterMenus()
 {
 	// Owner will be used for cleanup in call to UToolMenus::UnregisterOwner
 	FToolMenuOwnerScoped OwnerScoped(this);
-
 	{
 		UToolMenu* Menu = UToolMenus::Get()->ExtendMenu("LevelEditor.MainMenu.Window");
 		{
@@ -146,17 +155,74 @@ void FSimplePowerlineToolModule::RegisterMenus()
 
 #undef LOCTEXT_NAMESPACE
 
-FReply FSimplePowerlineToolModule::OnButtonClick()
+FReply FSimplePowerlineToolModule::CreateMeshClicked()
 {
-
+	if (!SelectedMesh) return FReply::Handled();
 	if (!GetSelectedActors()) return FReply::Handled();
-	bAttachToSocket = CanOperateOnSockets();
-	SpawnPowerlineActors();
 
+	bAttachToSocket = CanOperateOnSockets();
+	if (ActorLocation.IsEmpty()) return FReply::Handled();
+	SpawnPowerlineActors();
 
 	ActorSelection.Empty();
 	ActorLocation.Empty();
 	return FReply::Handled();
+}
+
+FReply FSimplePowerlineToolModule::RegenerateMeshClicked()
+{
+	RegenerateMesh();
+
+	return FReply::Handled();
+}
+
+void FSimplePowerlineToolModule::RegenerateMesh()
+{
+	USelection* SelectedActors = GEditor->GetSelectedActors();
+	SelectedActors->GetSelectedObjects<AActor>(ActorSelection);
+
+	if (ActorSelection.Num() > 0)
+	{
+		for (AActor* Object : ActorSelection)
+		{
+			if (Object)
+			{
+				TSet<UActorComponent*> Components = Object->GetComponents();
+				USplineComponent* SplineComponents = nullptr;
+				bool bChanging = false;
+				int32 HowManyChanges = 0;
+				for (UActorComponent* ActorComponent : Components)
+				{
+					if (USplineComponent* SplineComp = Cast<USplineComponent>(ActorComponent))
+					{
+						SplineComponents = SplineComp;
+						bChanging = true;
+						HowManyChanges = 0;
+						continue;
+					}
+					if (bChanging)
+					{
+						if (HowManyChanges < SplineSegments)
+						{
+							if (USplineMeshComponent* MeshComp = Cast<USplineMeshComponent>(ActorComponent))
+							{
+								FVector StartLocation, StartTangent, EndLocation, EndTangent;
+								SplineComponents->GetLocationAndTangentAtSplinePoint(HowManyChanges, StartLocation, StartTangent, ESplineCoordinateSpace::Local);
+								SplineComponents->GetLocationAndTangentAtSplinePoint(HowManyChanges + 1, EndLocation, EndTangent, ESplineCoordinateSpace::Local);
+
+								MeshComp->SetStartAndEnd(StartLocation, StartTangent, EndLocation, EndTangent);
+								HowManyChanges++;
+							}
+						}
+						else
+						{
+							bChanging = false;
+						}
+					}
+				}
+			}
+		}
+	}
 }
 
 void FSimplePowerlineToolModule::SpawnPowerlineActors()
@@ -175,7 +241,7 @@ void FSimplePowerlineToolModule::SpawnPowerlineActors()
 			USplineComponent* SplineComp = CreateSplineComponents(CableActor);
 			AddSplinePoints(SplineComp);
 			SetSplinePointsLocation(SplineComp, ActorNum * NumSocketPerActor + Index);
-			/*CreateSplineMeshComponents(SplineComp, CableActor);*/
+			CreateSplineMeshComponents(SplineComp, CableActor);
 		}
 	}
 }
@@ -183,13 +249,48 @@ void FSimplePowerlineToolModule::SpawnPowerlineActors()
 void FSimplePowerlineToolModule::SetSplinePointsLocation(USplineComponent* SplineComp, int32 Index)
 {
 	FVector DistanceVector = ActorLocation[Index] - ActorLocation[Index + NumSocketPerActor];
-	FVector PointDistance = DistanceVector / SplineSegments - 1;
+	FVector PointDistance = DistanceVector / SplineSegments;
 
 	FVector StartLocation = ActorLocation[Index + NumSocketPerActor] - PointDistance;
 	for (int32 SplinePoint = 0; SplinePoint < SplineComp->GetNumberOfSplinePoints(); SplinePoint++)
 	{
+		LineBendZCalculator(SplinePoint, SplineComp, StartLocation);
 		SplineComp->SetLocationAtSplinePoint(SplinePoint, StartLocation + PointDistance, ESplineCoordinateSpace::World);
 		StartLocation += PointDistance;
+	}
+}
+
+void FSimplePowerlineToolModule::LineBendZCalculator(int32 Index, USplineComponent* SplineComp, FVector& OutLocation)
+{
+	bool bZeroValue = LineBend < 0.f;
+	bool bFirstOrLastIndex = Index == 0 || Index == SplineComp->GetNumberOfSplinePoints();
+	if (bZeroValue || bFirstOrLastIndex) return;
+
+	int32 NumOfPoints = SplineComp->GetNumberOfSplinePoints() - 1;
+	int32 HalfOfPoints = (NumOfPoints - 2) / 2; // -2 because without first and last point
+	int32 OneLineBend = LineBend / ((SplineComp->GetNumberOfSplinePoints() - 2));
+	
+	if (SplineComp->GetNumberOfSplinePoints() % 2 != 0)
+	{
+		if (Index >= HalfOfPoints + 1)	// +1 because middle point too
+		{
+			OutLocation.Z = OutLocation.Z - OneLineBend * Index;
+		}
+		else
+		{
+			OutLocation.Z = OutLocation.Z + (OneLineBend * (Index - HalfOfPoints + 1));
+		}
+	}
+	else
+	{
+		if (Index >= HalfOfPoints)
+		{
+			OutLocation.Z = OutLocation.Z - OneLineBend * Index;
+		}
+		else
+		{
+			OutLocation.Z = OutLocation.Z + (OneLineBend * (Index - HalfOfPoints));
+		}
 	}
 }
 
@@ -256,23 +357,26 @@ bool FSimplePowerlineToolModule::CanOperateOnSockets()
 		{
 			if (UStaticMeshComponent* MeshComponent = Actor->GetComponentByClass<UStaticMeshComponent>())
 			{
-				if (LastMeshComponent)
+				if (LastMeshComponent == nullptr) LastMeshComponent = MeshComponent;
+	
+				bool bNoSockets = MeshComponent->GetAllSocketNames().IsEmpty();
+				bool bSameNumSockets = LastMeshComponent->GetAllSocketNames().Num() == MeshComponent->GetAllSocketNames().Num();
+				if (bNoSockets)
 				{
-					bool SameNumSockets = LastMeshComponent->GetAllSocketNames().Num() == MeshComponent->GetAllSocketNames().Num();
-					if (SameNumSockets)
-					{
-						LastMeshComponent = MeshComponent;
-					}
-					else
-					{
-						UE_LOG(LogTemp, Warning, TEXT("One of selected actors have different amount of sockets"));
-						ActorLocation.Empty();
-						NumSocketPerActor = 1;
-						return false;
-					}
+					ActorLocation.Add(MeshComponent->GetComponentLocation());
+					NumSocketPerActor = 2;
+				}
+				else if (LastMeshComponent->GetAllSocketNames().Num() == MeshComponent->GetAllSocketNames().Num())
+				{
+					NumSocketPerActor = MeshComponent->GetAllSocketNames().Num();
+				}
+				else
+				{
+					UE_LOG(LogTemp, Warning, TEXT("One of selected actors have different amount of sockets"));
+					ActorLocation.Empty();
+					return false;
 				}
 				SaveSocketsLocation(MeshComponent);
-				NumSocketPerActor = MeshComponent->GetAllSocketNames().Num();
 				LastMeshComponent = MeshComponent;
 			}
 			else
@@ -288,49 +392,56 @@ bool FSimplePowerlineToolModule::CanOperateOnSockets()
 void FSimplePowerlineToolModule::SaveSocketsLocation(UStaticMeshComponent* MeshComponent)
 {
 	TArray<FName> Names = MeshComponent->GetAllSocketNames();
-	for (FName Name : Names)
+	if (Names.IsEmpty())
 	{
-		ActorLocation.Add(MeshComponent->GetSocketLocation(Name));
+		ActorLocation.Add(MeshComponent->GetComponentLocation());
+	}
+	else
+	{
+		for (FName Name : Names)
+		{
+			ActorLocation.Add(MeshComponent->GetSocketLocation(Name));
+		}
 	}
 }
 
 void FSimplePowerlineToolModule::CreateSplineMeshComponents(USplineComponent* SplineComp, AActor* CableActor)
 {
-	//for (int32 Point = 0; Point <= SplineComp->GetNumberOfSplinePoints() - 2; Point++)
-	//{
-	//	FVector StartLocation, StartTangent, EndLocation, EndTangent;
-	//	SplineComp->GetLocationAndTangentAtSplinePoint(Point, StartLocation, StartTangent, ESplineCoordinateSpace::Local);
-	//	SplineComp->GetLocationAndTangentAtSplinePoint(Point + 1, EndLocation, EndTangent, ESplineCoordinateSpace::Local);
+	for (int32 Point = 0; Point <= SplineComp->GetNumberOfSplinePoints() - 2; Point++)
+	{
+		FVector StartLocation, StartTangent, EndLocation, EndTangent;
+		SplineComp->GetLocationAndTangentAtSplinePoint(Point, StartLocation, StartTangent, ESplineCoordinateSpace::Local);
+		SplineComp->GetLocationAndTangentAtSplinePoint(Point + 1, EndLocation, EndTangent, ESplineCoordinateSpace::Local);
 
-	//	USplineMeshComponent* SplineMeshComp = NewObject<USplineMeshComponent>(CableActor, USplineMeshComponent::StaticClass());
-	//	if (SplineMeshComp)
-	//	{
-	//		SplineMeshComp->AttachToComponent(CableActor->GetRootComponent(), FAttachmentTransformRules::KeepRelativeTransform);
-	//		SplineMeshComp->RegisterComponent();
-	//		SplineMeshComp->SetStartAndEnd(StartLocation, StartTangent, EndLocation, EndTangent);
-	//		CableActor->AddInstanceComponent(SplineMeshComp);
-	//		if (CableMesh)
-	//		{
-	//			SplineMeshComp->SetStaticMesh(CableMesh);
-	//		}
-	//		else
-	//		{
-	//			UE_LOG(LogTemp, Warning, TEXT("No CableMesh"));
-	//		}
-	//	}
-	//	else
-	//	{
-	//		UE_LOG(LogTemp, Warning, TEXT("SplineMEshCOmp not valid"));
-	//	}
-	//}
+		USplineMeshComponent* SplineMeshComp = NewObject<USplineMeshComponent>(CableActor, USplineMeshComponent::StaticClass());
+		if (SplineMeshComp)
+		{
+			SplineMeshComp->AttachToComponent(CableActor->GetRootComponent(), FAttachmentTransformRules::KeepRelativeTransform);
+			SplineMeshComp->RegisterComponent();
+			SplineMeshComp->SetStartAndEnd(StartLocation, StartTangent, EndLocation, EndTangent);
+			CableActor->AddInstanceComponent(SplineMeshComp);
+			if (SelectedMesh)
+			{
+				SplineMeshComp->SetStaticMesh(SelectedMesh);
+			}
+			else
+			{
+				UE_LOG(LogTemp, Warning, TEXT("No CableMesh"));
+			}
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("SplineMeshComp not valid"));
+		}
+	}
 }
 
 void FSimplePowerlineToolModule::OnAssetSelected(const FAssetData& AssetData)
 {
-	SelectedAsset = Cast<UStaticMesh>(AssetData.GetAsset());
-	if (SelectedAsset)
+	SelectedMesh = Cast<UStaticMesh>(AssetData.GetAsset());
+	if (SelectedMesh)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Asset Selected: %s"), *SelectedAsset->GetName());
+		UE_LOG(LogTemp, Warning, TEXT("Asset Selected: %s"), *SelectedMesh->GetName());
 	}
 }
 	

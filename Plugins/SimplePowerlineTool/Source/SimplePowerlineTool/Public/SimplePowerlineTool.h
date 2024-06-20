@@ -26,7 +26,9 @@ private:
 
 	TSharedRef<class SDockTab> OnSpawnPluginTab(const class FSpawnTabArgs& SpawnTabArgs);
 
-	FReply OnButtonClick();
+	FReply CreateMeshClicked();
+	FReply RegenerateMeshClicked();
+	void RegenerateMesh();
 
 	void SpawnPowerlineActors();
 
@@ -52,11 +54,15 @@ private:
 	int32 NumSocketPerActor = 0;
 	bool bAttachToSocket = false;
 
-	int32 SplineSegments = 7;
+	int32 SplineSegments = 2;
 
-	UStaticMesh* SelectedAsset;
+	UStaticMesh* SelectedMesh;
 
 	void OnAssetSelected(const FAssetData& AssetData);
+
+	float LineBend = 20.f;
+
+	void LineBendZCalculator(int32 Index, USplineComponent* SplineComp, FVector& OutLocation);
 
 
 private:
