@@ -252,44 +252,55 @@ void FSimplePowerlineToolModule::SetSplinePointsLocation(USplineComponent* Splin
 	FVector PointDistance = DistanceVector / SplineSegments;
 
 	FVector StartLocation = ActorLocation[Index + NumSocketPerActor] - PointDistance;
-	for (int32 SplinePoint = 0; SplinePoint < SplineComp->GetNumberOfSplinePoints(); SplinePoint++)
+	FVector BaseStartLocation = StartLocation;
+	for (int32 SplinePoint = 0; SplinePoint < SplineSegments + 1; SplinePoint++)
 	{
-		LineBendZCalculator(SplinePoint, SplineComp, StartLocation);
-		SplineComp->SetLocationAtSplinePoint(SplinePoint, StartLocation + PointDistance, ESplineCoordinateSpace::World);
+		FVector NewLocation = LineBendZCalculator(SplinePoint, SplineComp, StartLocation);
+		SplineComp->SetLocationAtSplinePoint(SplinePoint, NewLocation + PointDistance, ESplineCoordinateSpace::World);
 		StartLocation += PointDistance;
 	}
 }
 
-void FSimplePowerlineToolModule::LineBendZCalculator(int32 Index, USplineComponent* SplineComp, FVector& OutLocation)
+FVector FSimplePowerlineToolModule::LineBendZCalculator(int32 Index, USplineComponent* SplineComp, FVector Location)
 {
-	bool bZeroValue = LineBend < 0.f;
-	bool bFirstOrLastIndex = Index == 0 || Index == SplineComp->GetNumberOfSplinePoints();
-	if (bZeroValue || bFirstOrLastIndex) return;
 
-	int32 NumOfPoints = SplineComp->GetNumberOfSplinePoints() - 1;
+	bool bZeroValue = LineBend < 0.f;
+	bool bFirstOrLastIndex = Index == 0 || Index == SplineSegments;
+	if (bZeroValue || bFirstOrLastIndex) return Location;
+
+	int32 NumOfPoints = SplineSegments + 1;
 	int32 HalfOfPoints = (NumOfPoints - 2) / 2; // -2 because without first and last point
-	int32 OneLineBend = LineBend / ((SplineComp->GetNumberOfSplinePoints() - 2));
-	
-	if (SplineComp->GetNumberOfSplinePoints() % 2 != 0)
+	float OneLineBend = LineBend / HalfOfPoints;
+
+	FVector OutVector = Location;
+	if (NumOfPoints % 2 != 0)
 	{
-		if (Index >= HalfOfPoints + 1)	// +1 because middle point too
+		if (Index <= HalfOfPoints)
 		{
-			OutLocation.Z = OutLocation.Z - OneLineBend * Index;
+			float ZValue = -OneLineBend * Index;
+			OutVector.Z += ZValue;
+			return OutVector;
 		}
 		else
 		{
-			OutLocation.Z = OutLocation.Z + (OneLineBend * (Index - HalfOfPoints + 1));
+			float ZValue = -OneLineBend * (NumOfPoints - Index - 1);
+			OutVector.Z += ZValue;
+			return OutVector;
 		}
 	}
 	else
 	{
-		if (Index >= HalfOfPoints)
+		if (Index <= HalfOfPoints)
 		{
-			OutLocation.Z = OutLocation.Z - OneLineBend * Index;
+			float ZValue = -OneLineBend * Index;
+			OutVector.Z += ZValue;
+			return OutVector;
 		}
 		else
 		{
-			OutLocation.Z = OutLocation.Z + (OneLineBend * (Index - HalfOfPoints));
+			float ZValue = -OneLineBend * (NumOfPoints - Index - 1);
+			OutVector.Z += ZValue;
+			return OutVector;
 		}
 	}
 }

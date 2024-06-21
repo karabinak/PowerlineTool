@@ -60,9 +60,9 @@ private:
 
 	void OnAssetSelected(const FAssetData& AssetData);
 
-	float LineBend = 20.f;
+	float LineBend = 70.f;
 
-	void LineBendZCalculator(int32 Index, USplineComponent* SplineComp, FVector& OutLocation);
+	FVector LineBendZCalculator(int32 Index, USplineComponent* SplineComp, FVector Location);
 
 
 private:
