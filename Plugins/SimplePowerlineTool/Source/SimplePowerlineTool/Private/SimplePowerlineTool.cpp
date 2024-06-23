@@ -8,6 +8,7 @@
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Input/SButton.h"
+#include "Widgets/Input/SSlider.h"
 #include "ToolMenus.h"
 
 #include "Engine/Selection.h"
@@ -68,6 +69,7 @@ TSharedRef<SDockTab> FSimplePowerlineToolModule::OnSpawnPluginTab(const FSpawnTa
 	AssetPickerConfig.InitialAssetViewType = EAssetViewType::List;
 	AssetPickerConfig.bForceShowEngineContent = false;
 	AssetPickerConfig.SelectionMode = ESelectionMode::Single;
+	AssetPickerConfig.bForceShowPluginContent = true;
 	AssetPickerConfig.OnAssetSelected = FOnAssetSelected::CreateRaw(this, &FSimplePowerlineToolModule::OnAssetSelected);
 
 
@@ -99,11 +101,13 @@ TSharedRef<SDockTab> FSimplePowerlineToolModule::OnSpawnPluginTab(const FSpawnTa
 			[
 				SNew(SVerticalBox)
 					+ SVerticalBox::Slot()
+					.FillHeight(.7f)
 					[
 						AssetPicker
 					]
 
 					+ SVerticalBox::Slot()
+					.FillHeight(.1f)
 					[
 						SNew(SButton)
 						.Text(FText::FromString(TEXT("Generate Meshes")))
@@ -111,14 +115,56 @@ TSharedRef<SDockTab> FSimplePowerlineToolModule::OnSpawnPluginTab(const FSpawnTa
 						.VAlign(VAlign_Center)
 						.OnClicked_Raw(this, &FSimplePowerlineToolModule::CreateMeshClicked)
 					]
-
 					+ SVerticalBox::Slot()
+					.FillHeight(.1f)
 					[
 						SNew(SButton)
 						.Text(FText::FromString(TEXT("Regenerate Selected Meshes")))
 						.HAlign(HAlign_Center)
 						.VAlign(VAlign_Center)
 						.OnClicked_Raw(this, &FSimplePowerlineToolModule::RegenerateMeshClicked)
+					]
+					+ SVerticalBox::Slot()
+					.FillHeight(.05f)
+					[
+						SNew(STextBlock)
+						.Text(FText::FromString(TEXT("Line Bend Value:")))
+						.Justification(ETextJustify::Center)
+					]
+					+ SVerticalBox::Slot()
+					.FillHeight(.025f)
+					[
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot()
+						.FillWidth(.33f)
+						[
+							SNew(STextBlock)
+							.Text(FText::FromString(TEXT("0.f (flat)")))
+							.Justification(ETextJustify::InvariantLeft)
+						]
+						+ SHorizontalBox::Slot()
+						.FillWidth(.33f)
+						[
+							SNew(STextBlock)
+							.Text(FText::FromString(TEXT("125.f")))
+							.Justification(ETextJustify::Center)
+						]
+						+ SHorizontalBox::Slot()
+						.FillWidth(.33f)
+						[
+							SNew(STextBlock)
+							.Text(FText::FromString(TEXT("250.f")))
+							.Justification(ETextJustify::InvariantRight)
+						]
+					]
+					+ SVerticalBox::Slot()
+					.FillHeight(.025f)
+					[
+						SNew(SSlider)
+						.MinValue(0.f)
+						.MaxValue(250.f)
+						.Value(LineBend)
+						.OnValueChanged_Raw(this, &FSimplePowerlineToolModule::OnSliderValueChanged)
 					]
 			]
 		];
@@ -270,6 +316,7 @@ FVector FSimplePowerlineToolModule::LineBendZCalculator(int32 Index, USplineComp
 
 	int32 NumOfPoints = SplineSegments + 1;
 	int32 HalfOfPoints = (NumOfPoints - 2) / 2; // -2 because without first and last point
+	if (NumOfPoints <= 3) HalfOfPoints = 1;
 	float OneLineBend = LineBend / HalfOfPoints;
 
 	FVector OutVector = Location;
@@ -374,8 +421,8 @@ bool FSimplePowerlineToolModule::CanOperateOnSockets()
 				bool bSameNumSockets = LastMeshComponent->GetAllSocketNames().Num() == MeshComponent->GetAllSocketNames().Num();
 				if (bNoSockets)
 				{
-					ActorLocation.Add(MeshComponent->GetComponentLocation());
-					NumSocketPerActor = 2;
+					//ActorLocation.Add(MeshComponent->GetComponentLocation());
+					NumSocketPerActor = 1;
 				}
 				else if (LastMeshComponent->GetAllSocketNames().Num() == MeshComponent->GetAllSocketNames().Num())
 				{
@@ -454,6 +501,11 @@ void FSimplePowerlineToolModule::OnAssetSelected(const FAssetData& AssetData)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("Asset Selected: %s"), *SelectedMesh->GetName());
 	}
+}
+
+void FSimplePowerlineToolModule::OnSliderValueChanged(float Value)
+{
+	LineBend = Value;
 }
 	
 IMPLEMENT_MODULE(FSimplePowerlineToolModule, SimplePowerlineTool)

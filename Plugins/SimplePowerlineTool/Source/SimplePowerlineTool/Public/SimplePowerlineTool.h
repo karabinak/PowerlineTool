@@ -56,9 +56,12 @@ private:
 
 	int32 SplineSegments = 2;
 
+	float MeshScale = 0.5f;
 	UStaticMesh* SelectedMesh;
 
 	void OnAssetSelected(const FAssetData& AssetData);
+
+	void OnSliderValueChanged(float Value);
 
 	float LineBend = 70.f;
 
